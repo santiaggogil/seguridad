@@ -1,6 +1,7 @@
 package com.sgm.ms_security.Controllers;
 
 
+import com.google.gson.Gson;
 import com.sgm.ms_security.Models.Permission;
 import com.sgm.ms_security.Models.Session;
 import com.sgm.ms_security.Models.User;
@@ -9,12 +10,24 @@ import com.sgm.ms_security.Repositories.UserRepository;
 import com.sgm.ms_security.Services.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -48,6 +61,8 @@ public class SecurityController {
             .build();
 
     // Endpoint: /login
+    @Value("${notificaciones.url}")
+    private String notificacionesUrl;
     @PostMapping("/login")
     public HashMap<String, Object> login(@RequestBody User theNewUser, final HttpServletResponse response) throws IOException {
         HashMap<String, Object> theResponse = new HashMap<>();
@@ -73,10 +88,42 @@ public class SecurityController {
 
             // Enviar el código de validación por correo
             try {
-                theRequestURL.twoFactorEmail(twoFactorCode, theActualUser.getEmail(), theActualUser.getName());
+                // La creación del JSON con Gson sigue igual
+                Map<String, String> userMap = Map.of("name", theActualUser.getName(), "email", theActualUser.getEmail());
+                Map<String, Object> payload = Map.of("user", userMap, "twoFactorCode", twoFactorCode);
+                Gson gson = new Gson();
+                String jsonInputString = gson.toJson(payload);
+
+                // --- Usando OkHttp para la Petición ---
+                OkHttpClient client = new OkHttpClient();
+                MediaType JSON = MediaType.get("application/json; charset=utf-8");
+
+                // Esta es la línea que daba error. Debería funcionar después de recargar Maven.
+                okhttp3.RequestBody body = okhttp3.RequestBody.create(jsonInputString, JSON);
+
+                Request request = new Request.Builder()
+                        .url(notificacionesUrl) // tu variable de URL
+                        .post(body)
+                        .build();
+
+                // Ejecutar la llamada y obtener la respuesta
+                try (Response okHttpResponse = client.newCall(request).execute()) {
+                    if (!okHttpResponse.isSuccessful()) {
+                        System.err.println("Error al enviar la petición con OkHttp. Código: " + okHttpResponse.code());
+                        // .string() solo puede ser llamado una vez.
+                        String errorBody = okHttpResponse.body() != null ? okHttpResponse.body().string() : "Sin cuerpo de respuesta.";
+                        System.err.println("Cuerpo del error: " + errorBody);
+                    } else {
+                        String successBody = okHttpResponse.body() != null ? okHttpResponse.body().string() : "Sin cuerpo de respuesta.";
+                        System.out.println("Éxito al enviar la petición con OkHttp. Respuesta: " + successBody);
+                    }
+                }
             } catch (Exception e) {
+                // Este catch captura errores de red o de construcción de la petición
                 e.printStackTrace();
             }
+
+
         } else {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
         }
@@ -94,14 +141,6 @@ public class SecurityController {
         if (theActualUser == null) {
             System.out.println("Usuario no encontrado: " + theNewUser.getEmail());
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Usuario no encontrado");
-            return theResponse;
-        }
-
-        // Depuración: Verificar si la contraseña coincide
-        String hashedPassword = theEncryptionService.convertSHA256(theNewUser.getPassword());
-        if (!theActualUser.getPassword().equals(hashedPassword)) {
-            System.out.println("Contraseña incorrecta para el usuario: " + theNewUser.getEmail());
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Contraseña incorrecta");
             return theResponse;
         }
 
