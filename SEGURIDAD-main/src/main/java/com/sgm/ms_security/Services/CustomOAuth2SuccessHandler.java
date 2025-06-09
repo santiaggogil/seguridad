@@ -1,6 +1,7 @@
 package com.sgm.ms_security.Services;
 
 import com.sgm.ms_security.Models.User;
+import com.sgm.ms_security.Repositories.SessionRepository;
 import com.sgm.ms_security.Repositories.UserRepository;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +24,10 @@ public class CustomOAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHa
     @Autowired
     private JwtService theJwtService; // ¡Tu servicio de JWT existente!
 
+    // ===== ¡PASO 1: INYECTA EL REPOSITORIO DE SESIONES! =====
+    @Autowired
+    private SessionRepository theSessionRepository;
+
     @Autowired
     private UserRepository theUserRepository; // ¡Tu repositorio de usuarios existente!
 
@@ -42,39 +47,60 @@ public class CustomOAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHa
         OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
         String email = oauth2User.getAttribute("email");
         String name = oauth2User.getAttribute("name");
+        System.out.println("########## 2. Datos de Google -> Email: " + email + ", Nombre: " + name + " ##########");
 
         // 2. Usar tu lógica existente para encontrar o crear un usuario
         User theActualUser = this.theUserRepository.getUserByEmail(email);
 
         if (theActualUser == null) {
+            System.out.println("########## 3a. Usuario NO existe. Creando nuevo... ##########");
             // El usuario no existe, lo creamos en nuestra base de datos
-            theActualUser = new User();
-            theActualUser.setEmail(email);
-            theActualUser.setName(name);
+            User newUser = new User();
+            newUser.setEmail(email);
+            newUser.setName(name);
+
             // IMPORTANTE: Los usuarios de OAuth no tienen contraseña.
             // Guardamos un hash de un valor aleatorio para cumplir con la restricción NOT NULL si la hubiera
             // y para asegurarnos de que no puedan hacer login con el formulario normal.
-            theActualUser.setPassword(theEncryptionService.convertSHA256(UUID.randomUUID().toString()));
-
+            newUser.setPassword(theEncryptionService.convertSHA256(UUID.randomUUID().toString()));
             // Aquí deberías asignar un rol por defecto si tu sistema lo requiere
             // theActualUser.setRole(defaultRole);
 
-            theUserRepository.save(theActualUser);
+            theActualUser = theUserRepository.save(newUser);
+            System.out.println("########## 3b. Usuario NUEVO guardado. ID asignado por DB: " + theActualUser.getId() + " ##########");
+
+        }else {
+            System.out.println("########## 3. Usuario EXISTENTE encontrado. ID: " + theActualUser.getId() + " ##########");
         }
+
+        // VERIFICACIÓN CRÍTICA
+        if (theActualUser.getId() == null || theActualUser.getId().isEmpty()) {
+            System.out.println("########## ¡ERROR CRÍTICO! El ID del usuario es NULO o VACÍO antes de generar el token. ##########");
+            // Aquí podrías redirigir a una página de error o lanzar una excepción para verlo claramente
+            response.sendRedirect(frontendUrl + "/error?message=user_id_is_null");
+            return; // Detenemos la ejecución
+        }
+
 
         // 3. Generar TU PROPIO JWT usando tu servicio
         HashMap<String, Object> tokenData = theJwtService.generateToken(theActualUser);
         String token = tokenData.get("token").toString();
+        System.out.println("########## 4. Token JWT generado. Comienzo del token: " + token.substring(0, 20) + "... ##########");
 
-        // 4. Preparar la URL de redirección al frontend, incluyendo el token
-        String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/login-success")
-                .queryParam("token", token)
-                .build().toUriString();
+        // Construimos la URL base primero.
+        String baseUrl = frontendUrl; // Ejemplo: "http://localhost:4200"
 
-        // Limpiamos los atributos de la sesión para evitar conflictos
+        // Construimos la parte del "hash" por separado, incluyendo el query parameter.
+        String fragment = "/login-success?token=" + token;
+
+        // Combinamos todo para formar la URL final.
+        String targetUrl = baseUrl + "/#" + fragment;
+        // =========================================================================================
+
+
+        System.out.println("########## 5. Redirigiendo al frontend a la URL: " + targetUrl + " ##########\n\n\n");
+
         clearAuthenticationAttributes(request);
-
-        // 5. Redirigir al frontend
         getRedirectStrategy().sendRedirect(request, response, targetUrl);
     }
 }

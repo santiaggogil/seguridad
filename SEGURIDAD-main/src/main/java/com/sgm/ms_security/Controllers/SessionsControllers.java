@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @CrossOrigin
 @RestController
-@RequestMapping("api/sessions")
+@RequestMapping("/api/public/sessions")
 public class SessionsControllers {
 
     @Autowired

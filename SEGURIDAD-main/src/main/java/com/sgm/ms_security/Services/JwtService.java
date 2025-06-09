@@ -28,15 +28,16 @@ public class JwtService {
     public HashMap<String, Object> generateToken(User theUser) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("_id", theUser.getId());
-        claims.put("name", theUser.getName());
-        claims.put("email", theUser.getEmail());
 
         HashMap<String, Object> theResponse = new HashMap<>();
 
         String token = Jwts.builder()
-                .setClaims(claims)
+                // ===== ¡EL CAMBIO CLAVE ESTÁ AQUÍ! =====
+                .setSubject(theUser.getId()) // Usamos el claim estándar 'sub' para el ID
+                .claim("name", theUser.getName()) // Añadimos claims adicionales
+                .claim("email", theUser.getEmail())
+                // Si tienes roles, también puedes añadirlos aquí:
+                // .claim("role", theUser.getRole().getName())
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS512)
@@ -47,6 +48,7 @@ public class JwtService {
 
         return theResponse;
     }
+
     public boolean validateToken(String token) {
         try {
             Jws<Claims> claimsJws = Jwts.parserBuilder()
@@ -75,10 +77,8 @@ public class JwtService {
 
             Claims claims = claimsJws.getBody();
 
-            System.out.println("Claims: " + claims);
-
             User user = new User();
-            user.set_id((String) claims.get("_id"));
+            user.set_id(claims.getSubject()); // Leer desde el claim 'sub'
             user.setName((String) claims.get("name"));
             user.setEmail((String) claims.get("email"));
 
@@ -89,4 +89,5 @@ public class JwtService {
             return null;
         }
     }
+
 }

@@ -16,22 +16,18 @@ import okhttp3.Request;
 import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.sgm.ms_security.Services.RequestURL;
+
 
 @CrossOrigin
 @RestController
@@ -56,6 +52,9 @@ public class SecurityController {
     @Autowired
     private ValidatorsService theValidatorsService;
 
+    @Autowired
+    private RequestURL requestURL;
+
     private final HttpClient client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER) // No seguir redirecciones
             .build();
@@ -63,6 +62,7 @@ public class SecurityController {
     // Endpoint: /login
     @Value("${notificaciones.url}")
     private String notificacionesUrl;
+
     @PostMapping("/login")
     public HashMap<String, Object> login(@RequestBody User theNewUser, final HttpServletResponse response) throws IOException {
         HashMap<String, Object> theResponse = new HashMap<>();
@@ -249,5 +249,46 @@ public class SecurityController {
         } else {
             return "User or session not found";
         }
+    }
+
+    // ===== ¡NUEVO ENDPOINT! =====
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Map<String, String>> forgotPassword(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        User currentUser = this.theUserRepository.getUserByEmail(email);
+
+        if (currentUser == null) {
+            // Por seguridad, no revelamos si el correo existe o no.
+            return ResponseEntity.ok(Map.of("message", "Si el correo está registrado, recibirás una nueva contraseña."));
+        }
+
+        try {
+            // 1. Generar contraseña aleatoria (método de tu ejemplo)
+            String generatedPassword = generateRandomPassword(12);
+
+            // 2. Encriptar y guardar la nueva contraseña
+            currentUser.setPassword(theEncryptionService.convertSHA256(generatedPassword));
+            this.theUserRepository.save(currentUser);
+
+            // 3. Enviar la contraseña por correo usando tu servicio de notificaciones
+            this.requestURL.sendNewPasswordByEmail(currentUser.getEmail(), currentUser.getName(), generatedPassword);
+
+            return ResponseEntity.ok(Map.of("message", "Si el correo está registrado, recibirás una nueva contraseña."));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Error al procesar la solicitud."));
+        }
+    }
+
+    private String generateRandomPassword(int length) {
+        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        StringBuilder password = new StringBuilder(length);
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        for (int i = 0; i < length; i++) {
+            int index = random.nextInt(characters.length());
+            password.append(characters.charAt(index));
+        }
+        return password.toString();
     }
 }

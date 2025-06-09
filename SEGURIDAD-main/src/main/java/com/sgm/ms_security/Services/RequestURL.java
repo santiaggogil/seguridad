@@ -1,6 +1,7 @@
 package com.sgm.ms_security.Services;
 
 import com.google.gson.Gson;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -17,6 +18,9 @@ public class RequestURL {
 
     Gson gson = new Gson();
     HttpClient client = HttpClient.newHttpClient();
+
+    @Value("${notifications.url}")
+    private String notificationsServiceUrl;
 
     public void twoFactorEmail(String twoFactorCode, String email, String name) {
         try {
@@ -52,6 +56,32 @@ public class RequestURL {
             if (response.statusCode() != 200) {
                 throw new RuntimeException("Error al enviar el correo: " + response.body());
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendNewPasswordByEmail(String email, String name, String newPassword) {
+        try {
+            // 1. Construimos un JSON simple con los datos que espera el nuevo endpoint
+            Map<String, String> bodyMap = new HashMap<>();
+            bodyMap.put("email", email);
+            bodyMap.put("name", name);
+            bodyMap.put("newPassword", newPassword);
+
+            String body = gson.toJson(bodyMap);
+
+            // 2. Construimos la URL completa apuntando al nuevo endpoint
+            String url = notificationsServiceUrl + "/send-password";
+
+            HttpRequest postRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            client.send(postRequest, HttpResponse.BodyHandlers.ofString());
+
         } catch (Exception e) {
             e.printStackTrace();
         }
